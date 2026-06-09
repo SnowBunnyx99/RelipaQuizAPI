@@ -1,0 +1,8 @@
+question,timeLimit,points,option1,option2,option3,option4,correct
+"What is 2 + 2?",15,1000,3,4,5,22,2
+"Which planet is known as the Red Planet?",20,1000,Earth,Venus,Mars,Jupiter,3
+"What language runs in a web browser?",20,1000,Python,C++,Java,JavaScript,4
+"Who painted the Mona Lisa?",20,1000,Van Gogh,Picasso,Da Vinci,Rembrandt,3
+"What is the capital of Japan?",15,1000,Seoul,Tokyo,Beijing,Bangkok,2
+"How many continents are there?",15,800,5,6,7,8,3
+"What does HTML stand for?",25,1200,Hyper Trainer Marking Language,HyperText Markup Language,HyperText Markdown Language,None of these,2
