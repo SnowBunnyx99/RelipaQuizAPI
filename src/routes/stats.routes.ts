@@ -66,6 +66,34 @@ statsRouter.get("/:id/stats", async (req, res) => {
   const answered = questionStats.filter((q) => q.totalAnswers > 0);
   const sortedByAccuracy = [...answered].sort((a, b) => a.accuracy - b.accuracy);
 
+  // Per-participant breakdown: for each player, their result on every question
+  // (V = correct, X = wrong/unanswered). Rendered as a grid in the UI.
+  const answerByKey = new Map<string, (typeof session.answers)[number]>();
+  for (const a of session.answers) {
+    answerByKey.set(`${a.participantId}:${a.questionId}`, a);
+  }
+
+  const participantBreakdown = session.participants.map((p, i) => {
+    const results = session.quiz.questions.map((q) => {
+      const a = answerByKey.get(`${p.id}:${q.id}`);
+      return {
+        questionId: q.id,
+        answered: Boolean(a),
+        isCorrect: a?.isCorrect ?? false,
+      };
+    });
+    return {
+      participantId: p.id,
+      nickname: p.nickname,
+      score: p.score,
+      rank: i + 1,
+      correctCount: results.filter((r) => r.isCorrect).length,
+      wrongCount: results.filter((r) => r.answered && !r.isCorrect).length,
+      unansweredCount: results.filter((r) => !r.answered).length,
+      results,
+    };
+  });
+
   res.json({
     sessionId: session.id,
     quizTitle: session.quiz.title,
@@ -76,6 +104,7 @@ statsRouter.get("/:id/stats", async (req, res) => {
     totalQuestions: session.quiz.questions.length,
     leaderboard,
     questionStats,
+    participantBreakdown,
     hardestQuestion: sortedByAccuracy[0] ?? null,
     easiestQuestion: sortedByAccuracy[sortedByAccuracy.length - 1] ?? null,
   });
