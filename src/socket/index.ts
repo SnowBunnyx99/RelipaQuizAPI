@@ -51,7 +51,14 @@ export function registerSocketHandlers(io: Server): GameManager {
     socket.on(EV.PLAYER_ANSWER, async (payload: PlayerAnswerPayload) => {
       const participantId = socket.data.participantId as string | undefined;
       if (!participantId) return;
-      await games.submitAnswer(socket, participantId, payload.questionId, payload.optionId);
+      // accept the new optionIds[] shape; tolerate an older single optionId client
+      const legacy = payload as unknown as { optionId?: string };
+      const optionIds = Array.isArray(payload.optionIds)
+        ? payload.optionIds
+        : legacy.optionId
+          ? [legacy.optionId]
+          : [];
+      await games.submitAnswer(socket, participantId, payload.questionId, optionIds);
     });
 
     socket.on("disconnect", () => {

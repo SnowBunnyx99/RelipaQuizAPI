@@ -40,6 +40,8 @@ async function persistQuiz(input: z.infer<typeof createQuizSchema>) {
         create: input.questions.map((q, qi) => ({
           order: qi,
           text: q.text,
+          // a question with more than one correct option is a multi-answer question
+          type: q.options.filter((o) => o.isCorrect).length > 1 ? "MULTIPLE" : "SINGLE",
           timeLimit: q.timeLimit,
           points: q.points,
           options: {

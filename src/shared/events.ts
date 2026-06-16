@@ -36,6 +36,8 @@ export interface PublicQuestion {
   total: number; // total number of questions
   text: string;
   options: PublicOption[];
+  multiple: boolean; // true = more than one correct answer; player picks a set
+  correctCount: number; // how many options are correct (drives the "Choose N" hint)
   timeLimit: number; // seconds
   points: number;
   startedAt: number; // epoch ms when the question opened (authoritative)
@@ -68,7 +70,7 @@ export interface PlayerJoinPayload {
 }
 export interface PlayerAnswerPayload {
   questionId: string;
-  optionId: string;
+  optionIds: string[]; // one id for single-answer, the full chosen set for multi-answer
 }
 
 // ---- server -> client payloads -------------------------------------------
@@ -86,7 +88,7 @@ export interface StatePayload {
   leaderboard?: LeaderboardRow[];
   // for a reconnecting player:
   you?: ParticipantInfo;
-  yourAnswerOptionId?: string | null;
+  yourAnswerOptionIds?: string[] | null;
 }
 
 export interface LobbyUpdatePayload {

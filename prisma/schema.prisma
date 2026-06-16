@@ -27,7 +27,7 @@ model Quiz {
 
 enum QuestionType {
   SINGLE // exactly one correct option
-  MULTIPLE // (reserved) more than one correct option
+  MULTIPLE // more than one correct option; player must pick the exact set
 }
 
 model Question {
@@ -103,7 +103,8 @@ model Answer {
   question      Question      @relation(fields: [questionId], references: [id], onDelete: Cascade)
   questionId    String
   option        AnswerOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  optionId      String?
+  optionId      String? // the single chosen option for SINGLE questions (null for multi)
+  selectedOptionIds String[] @default([]) // every option the player picked (1 for single, n for multiple)
   isCorrect     Boolean
   timeTakenMs   Int // how long after the question opened the answer arrived
   pointsAwarded Int

@@ -84,12 +84,17 @@ question, timeLimit, points, option1, option2, option3, option4, correct
 - `timeLimit` (seconds, default 20) and `points` (default 1000) are optional.
 - 2–6 options (`option1`…`option6`); blank option columns are ignored.
 - `correct` is the **1-based option number** (e.g. `2`) **or a letter** (`B`).
+- For **multiple correct answers**, list several values separated by space,
+  semicolon, pipe, or slash (e.g. `1 3`, `B;D`) — or a comma if the whole field
+  is double-quoted (`"1,3"`). Such a question becomes a multi-answer
+  ("select all that apply") question, scored all-or-nothing.
 
 Example:
 
 ```csv
 question,timeLimit,points,option1,option2,option3,option4,correct
 "What is 2 + 2?",15,1000,3,4,5,22,2
+"Which of these are prime? (choose all)",30,1000,4,7,9,11,"2 4"
 ```
 
 ---

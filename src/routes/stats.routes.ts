@@ -47,7 +47,10 @@ statsRouter.get("/:id/stats", async (req, res) => {
       order: o.order,
       text: o.text,
       isCorrect: o.isCorrect,
-      count: answers.filter((a) => a.optionId === o.id).length,
+      // count any answer that selected this option (multi-answer picks several)
+      count: answers.filter(
+        (a) => a.selectedOptionIds.includes(o.id) || a.optionId === o.id
+      ).length,
     }));
     return {
       questionId: q.id,

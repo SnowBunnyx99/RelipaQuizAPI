@@ -30,6 +30,8 @@ interface LoadedQuestion {
   timeLimit: number;
   points: number;
   options: LoadedOption[];
+  multiple: boolean; // more than one correct option
+  correctCount: number;
 }
 
 interface RoomParticipant {
@@ -42,7 +44,7 @@ interface RoomParticipant {
 }
 
 interface CurrentAnswer {
-  optionId: string;
+  optionIds: string[]; // every option the player selected
   timeTakenMs: number;
   correct: boolean;
   points: number;
@@ -100,19 +102,24 @@ export class GameManager {
       sessionId: session.id,
       joinCode: session.joinCode,
       quizTitle: session.quiz.title,
-      questions: session.quiz.questions.map((q) => ({
-        id: q.id,
-        order: q.order,
-        text: q.text,
-        timeLimit: q.timeLimit,
-        points: q.points,
-        options: q.options.map((o) => ({
-          id: o.id,
-          order: o.order,
-          text: o.text,
-          isCorrect: o.isCorrect,
-        })),
-      })),
+      questions: session.quiz.questions.map((q) => {
+        const correctCount = q.options.filter((o) => o.isCorrect).length;
+        return {
+          id: q.id,
+          order: q.order,
+          text: q.text,
+          timeLimit: q.timeLimit,
+          points: q.points,
+          options: q.options.map((o) => ({
+            id: o.id,
+            order: o.order,
+            text: o.text,
+            isCorrect: o.isCorrect,
+          })),
+          multiple: q.type === "MULTIPLE" || correctCount > 1,
+          correctCount,
+        };
+      }),
       participants: new Map(
         session.participants.map((p) => [
           p.id,
@@ -207,6 +214,8 @@ export class GameManager {
       total: room.questions.length,
       text: q.text,
       options: q.options.map((o) => ({ id: o.id, order: o.order, text: o.text })),
+      multiple: q.multiple,
+      correctCount: q.correctCount,
       timeLimit: q.timeLimit,
       points: q.points,
       startedAt: room.questionStartedAt,
@@ -222,7 +231,7 @@ export class GameManager {
     socket: Socket,
     participantId: string,
     questionId: string,
-    optionId: string
+    optionIds: string[]
   ) {
     const sessionId = socket.data.sessionId as string | undefined;
     if (!sessionId) return;
@@ -236,10 +245,17 @@ export class GameManager {
     const elapsed = Date.now() - room.questionStartedAt;
     if (elapsed > q.timeLimit * 1000 + ANSWER_GRACE_MS) return; // too late
 
-    const option = q.options.find((o) => o.id === optionId);
-    if (!option) return;
+    // keep only valid, de-duplicated option ids that belong to this question
+    const validIds = new Set(q.options.map((o) => o.id));
+    const selected = [...new Set(optionIds)].filter((id) => validIds.has(id));
+    if (selected.length === 0) return; // empty submission is ignored
 
-    const correct = option.isCorrect;
+    // All-or-nothing: the chosen set must be exactly the set of correct options.
+    const correctIds = q.options.filter((o) => o.isCorrect).map((o) => o.id);
+    const correct =
+      selected.length === correctIds.length &&
+      selected.every((id) => correctIds.includes(id));
+
     const points = computeScore({
       correct,
       timeTakenMs: elapsed,
@@ -247,7 +263,7 @@ export class GameManager {
       basePoints: q.points,
     });
 
-    room.answers.set(participantId, { optionId, timeTakenMs: elapsed, correct, points });
+    room.answers.set(participantId, { optionIds: selected, timeTakenMs: elapsed, correct, points });
 
     const participant = room.participants.get(participantId);
     if (participant) {
@@ -293,8 +309,10 @@ export class GameManager {
     }));
     const tallyByOption = new Map(tally.map((t) => [t.optionId, t]));
     for (const ans of room.answers.values()) {
-      const t = tallyByOption.get(ans.optionId);
-      if (t) t.count++;
+      for (const optionId of ans.optionIds) {
+        const t = tallyByOption.get(optionId);
+        if (t) t.count++;
+      }
     }
 
     // persist answers + updated scores for this question
@@ -357,7 +375,10 @@ export class GameManager {
       let correctCount = 0;
       let totalTime = 0;
       for (const a of ans.values()) {
-        byOpt.get(a.optionId)!.count++;
+        for (const optionId of a.optionIds) {
+          const t = byOpt.get(optionId);
+          if (t) t.count++;
+        }
         if (a.correct) correctCount++;
         totalTime += a.timeTakenMs;
       }
@@ -524,6 +545,8 @@ export class GameManager {
           total: room.questions.length,
           text: q.text,
           options: q.options.map((o) => ({ id: o.id, order: o.order, text: o.text })),
+          multiple: q.multiple,
+          correctCount: q.correctCount,
           timeLimit: q.timeLimit,
           points: q.points,
           startedAt: room.questionStartedAt,
@@ -539,7 +562,7 @@ export class GameManager {
       const p = room.participants.get(participantId);
       if (p) {
         state.you = this.toInfo(p);
-        state.yourAnswerOptionId = room.answers.get(participantId)?.optionId ?? null;
+        state.yourAnswerOptionIds = room.answers.get(participantId)?.optionIds ?? null;
       }
     }
     return state;
@@ -551,7 +574,9 @@ export class GameManager {
       sessionId: room.sessionId,
       participantId,
       questionId,
-      optionId: a.optionId,
+      // keep the legacy single-option column populated only for single answers
+      optionId: a.optionIds.length === 1 ? a.optionIds[0] : null,
+      selectedOptionIds: a.optionIds,
       isCorrect: a.correct,
       timeTakenMs: a.timeTakenMs,
       pointsAwarded: a.points,
