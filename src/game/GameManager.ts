@@ -1,6 +1,5 @@
 import type { Server, Socket } from "socket.io";
 import { prisma } from "../prisma.js";
-import { computeScore } from "../lib/scoring.js";
 import {
   SOCKET_EVENTS as EV,
   type GamePhase,
@@ -37,17 +36,16 @@ interface LoadedQuestion {
 interface RoomParticipant {
   id: string;
   nickname: string;
-  score: number;
+  score: number; // number of correct answers (the points system was removed)
+  wrongCount: number; // number of incorrect answers
   connected: boolean;
   socketId: string | null;
-  lastGain: number;
 }
 
 interface CurrentAnswer {
   optionIds: string[]; // every option the player selected
   timeTakenMs: number;
   correct: boolean;
-  points: number;
 }
 
 interface GameRoom {
@@ -127,9 +125,9 @@ export class GameManager {
             id: p.id,
             nickname: p.nickname,
             score: p.score,
+            wrongCount: 0,
             connected: false,
             socketId: null,
-            lastGain: 0,
           },
         ])
       ),
@@ -201,7 +199,6 @@ export class GameManager {
     room.currentIndex = index;
     room.questionStartedAt = Date.now();
     room.answers = new Map();
-    for (const p of room.participants.values()) p.lastGain = 0;
 
     await prisma.gameSession.update({
       where: { id: room.sessionId },
@@ -256,19 +253,13 @@ export class GameManager {
       selected.length === correctIds.length &&
       selected.every((id) => correctIds.includes(id));
 
-    const points = computeScore({
-      correct,
-      timeTakenMs: elapsed,
-      timeLimitSec: q.timeLimit,
-      basePoints: q.points,
-    });
-
-    room.answers.set(participantId, { optionIds: selected, timeTakenMs: elapsed, correct, points });
+    room.answers.set(participantId, { optionIds: selected, timeTakenMs: elapsed, correct });
 
     const participant = room.participants.get(participantId);
     if (participant) {
-      participant.score += points;
-      participant.lastGain = points;
+      // scoring is now a simple right/wrong tally — no time-weighted points
+      if (correct) participant.score += 1;
+      else participant.wrongCount += 1;
     }
 
     // ack to the answering player only (no leak of correctness yet beyond their own)
@@ -298,14 +289,14 @@ export class GameManager {
     }
     room.phase = "reveal";
     const q = room.questions[room.currentIndex];
-    const correctOptionIds = q.options.filter((o) => o.isCorrect).map((o) => o.id);
 
-    // build tally
+    // build tally — correctness stays hidden until the game ends, so we report
+    // isCorrect:false here even though the DB still records the true result.
     const tally: OptionTally[] = q.options.map((o) => ({
       optionId: o.id,
       order: o.order,
       count: 0,
-      isCorrect: o.isCorrect,
+      isCorrect: false,
     }));
     const tallyByOption = new Map(tally.map((t) => [t.optionId, t]));
     for (const ans of room.answers.values()) {
@@ -323,32 +314,17 @@ export class GameManager {
 
     const leaderboard = this.buildLeaderboard(room);
 
-    const base: RevealPayload = {
+    // Everyone gets the same neutral reveal: vote counts + standings, but no
+    // correct answers and no per-player result. Those are saved for the end.
+    const payload: RevealPayload = {
       questionId: q.id,
-      correctOptionIds,
+      correctOptionIds: [],
       tally,
       leaderboard,
       answeredCount: room.answers.size,
       totalPlayers: this.connectedCount(room),
     };
-
-    // host + lobby screen get the aggregate reveal
-    this.io.to(`${this.roomChannel(room.sessionId)}:host`).emit(EV.REVEAL, base);
-
-    // each player gets a personalized reveal (their own result)
-    for (const p of room.participants.values()) {
-      if (!p.socketId) continue;
-      const ans = room.answers.get(p.id);
-      const personalized: RevealPayload = {
-        ...base,
-        yourResult: {
-          correct: ans?.correct ?? false,
-          pointsAwarded: ans?.points ?? 0,
-          totalScore: p.score,
-        },
-      };
-      this.io.to(p.socketId).emit(EV.REVEAL, personalized);
-    }
+    this.io.to(this.roomChannel(room.sessionId)).emit(EV.REVEAL, payload);
   }
 
   private async gameOver(room: GameRoom) {
@@ -445,9 +421,9 @@ export class GameManager {
         id: created.id,
         nickname: created.nickname,
         score: 0,
+        wrongCount: 0,
         connected: true,
         socketId: null,
-        lastGain: 0,
       };
       room.participants.set(participant.id, participant);
     }
@@ -507,13 +483,14 @@ export class GameManager {
 
   private buildLeaderboard(room: GameRoom): LeaderboardRow[] {
     const rows = [...room.participants.values()]
-      .sort((a, b) => b.score - a.score)
+      // most correct first; fewer wrong breaks ties
+      .sort((a, b) => b.score - a.score || a.wrongCount - b.wrongCount)
       .map((p, i) => ({
         participantId: p.id,
         nickname: p.nickname,
-        score: p.score,
+        correctCount: p.score, // p.score now tracks the number of correct answers
+        wrongCount: p.wrongCount,
         rank: i + 1,
-        lastGain: p.lastGain,
       }));
     return rows;
   }
@@ -579,7 +556,8 @@ export class GameManager {
       selectedOptionIds: a.optionIds,
       isCorrect: a.correct,
       timeTakenMs: a.timeTakenMs,
-      pointsAwarded: a.points,
+      // points were removed; record 1 for a correct answer, 0 otherwise
+      pointsAwarded: a.correct ? 1 : 0,
     }));
     if (rows.length) {
       await prisma.answer

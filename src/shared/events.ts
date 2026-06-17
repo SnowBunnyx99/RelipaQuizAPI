@@ -46,9 +46,9 @@ export interface PublicQuestion {
 export interface LeaderboardRow {
   participantId: string;
   nickname: string;
-  score: number;
+  correctCount: number; // number of questions answered correctly
+  wrongCount: number; // number of questions answered incorrectly
   rank: number;
-  lastGain?: number; // points earned on the most recent question
 }
 
 export interface ParticipantInfo {
@@ -110,15 +110,12 @@ export interface OptionTally {
 
 export interface RevealPayload {
   questionId: string;
+  // Correctness is hidden until the game ends, so during play this is empty
+  // and the tally entries report isCorrect:false. The vote counts are still
+  // shown so the host can see how the room answered.
   correctOptionIds: string[];
   tally: OptionTally[];
   leaderboard: LeaderboardRow[];
-  // personalized (only sent to the owning player):
-  yourResult?: {
-    correct: boolean;
-    pointsAwarded: number;
-    totalScore: number;
-  };
   answeredCount: number;
   totalPlayers: number;
 }
